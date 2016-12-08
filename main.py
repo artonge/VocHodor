@@ -49,8 +49,9 @@ def hann(q): return (1.0 + math.cos(2.0 * math.pi * q / N)) / 2.0
 # m -> le numero de la decoupe
 # q -> le numero d'echantillon dans la decoupe
 # Return INT
-def u(m, q): return x[m * dn + q] * hann(q)
-
+def u(m, q):
+    if m * dn + q > len(x)-1: print m, dn, q
+    return x[m * dn + q] * hann(q)
 
 # Fonction de reconstruction d'un echantillon
 # n -> le numero de l'echantillon
@@ -62,7 +63,7 @@ def recon_x(n):
 
 
 # TF du signal x
-# m -> 
+# m ->
 # k -> indice voulu fans la Transform
 def X(m, k):
     _u = []
