@@ -23,8 +23,8 @@ e = wavfile.read('chasse.wav') # Signal du son
 
 Tvoulu = 0.05  #  50ms              | 20ms(Duree d'un phoneme) < Tvoulu < 125ms(Frequence la plus basse de la voix d'un homme)
 Nvoulu = Tvoulu*fe   #  7200        | Nombre d'echantillon dans Tvoulu
-N  = closestPowerOf2(Nvoulu) # 2048 | On en garde seulement une puissance de 2 pour la fft
-T  = float(N) / float(fe) #  85.3ms | On decoupe le signal en bouts de duree T = 85.3ms
+N  = closestPowerOf2(Nvoulu) # 2048 | Nombre d'ecahntillons dans une fenetre. On en garde seulement une puissance de 2 pour la fft
+T  = float(N) / float(fe) #  85.3ms | Duree d'une fenetre. On decoupe le signal en bouts de duree T = 85.3ms
 dt = T / 2.0  #  42.65ms            | Pas d'avancement dans le signal lors de la decoupe
 dn = N / 2    #  1024               | Pas d'avancement en echantillons
 
@@ -40,21 +40,25 @@ print 'dn -> ', dn
 
 # Fonction de hann
 # Fenetre progressive
-# q -> qeme echantillon dans un decoupage    |    q E [-N/2, N/2]
+# q INT -> qeme echantillon dans un decoupage    |    q E [-N/2, N/2]
 # Return FLOAT
-def hann(q): return (1.0 + math.cos(2.0 * math.pi * q / N)) / 2.0
+hann_cache = {}
+def hann(q):
+    if q not in hann_cache:
+        hann_cache[q] = (1.0 + math.cos(2.0 * math.pi * q / N)) / 2.0
+    return hann_cache[q]
 
 
 # Fonction de decoupe
-# m -> le numero de la decoupe
-# q -> le numero d'echantillon dans la decoupe
-# Return INT
+# m INT -> le numero de la decoupe
+# q INT -> le numero d'echantillon dans la decoupe
+# Return [INT INT]
 def u(m, q): return x[m * dn + q] * hann(q)
 
 
 # Fonction de reconstruction d'un echantillon
-# n -> le numero de l'echantillon
-# Return INT
+# n INT -> le numero de l'echantillon
+# Return [INT INT]
 def recon_x(n):
     m = n / dn
     q = n - m * dn
@@ -62,15 +66,21 @@ def recon_x(n):
 
 
 # TF du signal x
-# m -> 
-# k -> indice voulu fans la Transform
+# m INT -> le numero de la decoupe
+# k INT -> indice voulu fans la Transform
+# Return [INT INT]
 def X(m, k):
     _u = []
     for q in range(0, N): _u.append(u(m, q-(N/2)))
     return fft(_u)[k]
 
 
+# TF du signal x
+# m INT -> le numero de la decoupe
+# k INT -> indice voulu fans la Transform
+# Return [[INT INT]]
 def FFT_X(m):
+    print m
     _u = []
     for q in range(0, N): _u.append(u(m, q-(N/2)))
     return fft(_u)
@@ -80,16 +90,7 @@ m = 20
 k = 1
 X(m, k);
 
-_X = 0
-for i in range(0, len(x)):
-    if _X == 0: X = FFT_X(i/dn)
-    else: _X += FFT_X(i/dn)
-# _X = np.array(_X)
-# signalLength = _X.shape[0]
-# t = np.arange(0, signalLength, 1)
-# plt.figure(1)
-# plt.plot(t, _X)
-# plt.show()
+
 
 
 
@@ -134,4 +135,17 @@ for i in range(0, len(x)):
 # plt.plot(t, x)
 # plt.subplot(212)
 # plt.plot(t, _x)
+# plt.show()
+#################################################
+#################################################
+# TEST FFT DES BOUT DE X -- OK -- CA MARCHE BUENO
+# _X = 0
+# for i in range(0, len(x)/N):
+#     if i == 0: _X = FFT_X(i)
+#     else: _X = np.append(_X, FFT_X(i))
+# 
+# signalLength = _X.shape[0]
+# t = np.arange(0, signalLength, 1)
+# plt.figure(1)
+# plt.plot(t, _X)
 # plt.show()
