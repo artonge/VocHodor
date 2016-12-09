@@ -34,7 +34,7 @@ dn = N / 2                                   #  1024     |  INT    |  Pas d'avan
 xLen   = len(x)                              #  76776    |  INT    |  Nombre d'echantillion dans le signal
 nbFenetre = xLen / dn                        #  74       |  INT    |  Nombre de fenetres
 windowOverflow = xLen - nbFenetre * dn + dn  #  2024     |  INT    |  Nombre d'echantillons restant a la fin
-
+teta = 30                                    #  30       |  INT    |  Quefrence seuil
 
 print 'Tvoulu -> ', Tvoulu
 print 'Nvoulu -> ', Nvoulu
@@ -46,6 +46,7 @@ print 'dn -> ', dn
 print 'len -> ', xLen
 print 'nbFenetre -> ', nbFenetre
 print 'windowOverflow -> ', windowOverflow
+print 'teta -> ', teta
 
 
 # Fonction de hann
@@ -98,22 +99,59 @@ def FFT_X(m):
     return FFT_X_cache[m]
 
 
-# TF du signal x
+# TF a court terme du signal x
 # m INT -> le numero de la decoupe
 # k INT -> indice voulu fans la Transform
 # Return np.array: [FLOAT FLOAT]
 def X(m, k): return FFT_X(m)[k]
 
 
+# Cepstre a court terme  du signal x
+# m INT -> le numero de la decoupe
+# j INT -> le numero de la quefrence
+def c(m, j):
+    _X = FFT_X(m)
+    moduleX = np.module(_X)
+    logModuleX = np.log(moduleX)
+    return ifft2(logModuleX)[j]
+
+
+# Cepstre prime ==> cepstre sans les hautes frequences
+# Pour récuperer seulement les frequence du conduit vocal
+# Si teta < j < N-teta alors on retourne 0
+# m INT -> le numero de la decoupe
+# j INT -> le numero de la quefrence
+def c_prime(m, j):
+    if teta < j && j < N-teta: return 0
+    else: return c(m, j)
+
+
+
+# TF de cepstre prime
+# Si teta < j < N-teta alors on retourne 0
+# m INT -> le numero de la decoupe
+# k INT -> le numero de la quefrence
+def C_prime(m, k):
+    _u = np.ndarray(shape=(N,2))
+    for j in range(0, N): _c[j] = c_prime(m, j)
+    return fft(_c)[k]
+
+
+# TF du conduit vocal
+# m INT -> le numero de la decoupe
+# k INT -> le numero de la quefrence
+def H(m, k): return np.exp(C_prime(m, k))
+
+
 
 # TEST RECONSTRUCTION DE X DEPUIS LE DECOUPAGE PUIS LA FFT
-_x = np.ndarray(shape=(xLen,2))
-for n in range(0, xLen-windowOverflow): _x[n] = recon_x(n).real
-print np.average(_x-x)
-t = np.arange(0, x.shape[0], 1)
-plt.figure(1)
-plt.subplot(211)
-plt.plot(t, x)
-plt.subplot(212)
-plt.plot(t, _x)
-plt.show()
+# _x = np.ndarray(shape=(xLen,2))
+# for n in range(0, xLen-windowOverflow): _x[n] = recon_x(n).real
+# print np.average(_x-x)
+# t = np.arange(0, x.shape[0], 1)
+# plt.figure(1)
+# plt.subplot(211)
+# plt.plot(t, x)
+# plt.subplot(212)
+# plt.plot(t, _x)
+# plt.show()
