@@ -21,20 +21,20 @@ def closestPowerOf2(n):
 
 # fe = 48 000Hz = la frequence dechantillionnage du signal
 # x = le signal
-fe, x = wavfile.read('photographe.wav') # Signal de la parole
-e = wavfile.read('chasse.wav') # Signal du son
+fe, x  = wavfile.read('photographe.wav') # Signal de la parole
+fee, e = wavfile.read('chasse.wav') # Signal du son
 
 
 Tvoulu = 0.05                                #  50ms     |  FLOAT  |  Duree theorique d'une fenetre
-Nvoulu = Tvoulu*fe                           #  2400     |  INT    |  Nombre d'echantillon dans Tvoulu
-N  = closestPowerOf2(Nvoulu)                 #  2048     |  INT    |  On rabaisse a la puissance de 2 la plus proche pour la fft
-T  = float(N) / float(fe)                    #  42.66ms  |  FLOAT  |  Duree d'une fenetre. On decoupe le signal en bouts de duree T = 85.3ms
+Nvoulu = Tvoulu*fe                           #  2400     |  INT    |  Nombre theorique d'echantillon dans une fenetre
+N  = closestPowerOf2(Nvoulu)                 #  2048     |  INT    |  On aroundi a la puissance de 2 la plus proche pour la fft
+T  = float(N) / float(fe)                    #  42.66ms  |  FLOAT  |  On decoupe le signal en fenetres de duree T = 85.3ms
 dt = T / 2.0                                 #  21.33ms  |  FLOAT  |  Duree du d'avancement dans le signal lors de la decoupe
 dn = N / 2                                   #  1024     |  INT    |  Pas d'avancement en echantillons
-xLen   = len(x)                              #  76776    |  INT    |  Nombre d'echantillion dans le signal
+xLen   = len(x)                              #  76776    |  INT    |  Nombre d'echantillions dans le signal
 nbFenetre = xLen / dn                        #  74       |  INT    |  Nombre de fenetres
 windowOverflow = xLen - nbFenetre * dn + dn  #  2024     |  INT    |  Nombre d'echantillons restant a la fin
-teta = 30                                    #  30       |  INT    |  Quefrence seuil
+teta = 512                                   #  512      |  INT    |  Quefrence seuil empirique
 
 print 'Tvoulu -> ', Tvoulu
 print 'Nvoulu -> ', Nvoulu
@@ -51,7 +51,7 @@ print 'teta -> ', teta
 
 # Fonction de hann
 # Fenetre progressive
-# q INT -> qeme echantillon dans un decoupage    |    q E [-N/2, N/2]
+# q INT -> le numero d'echantillon dans la decoupe centree en 0    |    q E [-N/2, N/2]
 # Return FLOAT
 hann_cache = {}
 def hann(q):
@@ -62,15 +62,14 @@ def hann(q):
 
 # Fonction de decoupe
 # m INT -> le numero de la decoupe
-# q INT -> le numero d'echantillon dans la decoupe
+# q INT -> le numero d'echantillon dans la decoupe centree en 0    |    q E [-N/2, N/2]
 # Return np.array: [INT INT]
-def u(m, q):
-    return x[m * dn + q] * hann(q)
+def u(m, q): return x[m * dn + q] * hann(q)
 
 
 # Fonction de reconstruction d'un echantillon a partir de la FFT
 # m INT -> le numero de la decoupe
-# q INT -> le numero d'echantillon dans la decoupe
+# q INT -> le numero d'echantillon dans la decoupe centree en 0    |    q E [-N/2, N/2]
 # Return np.array: [INT INT]
 recon_u_cache = {}
 def recon_u(m, q):
@@ -87,9 +86,9 @@ def recon_x(n):
     return  recon_u(m, q) + recon_u(m+1, q-dn)
 
 
-# TF du signal x
+# TF a court terme du signal x
 # m INT -> le numero de la decoupe
-# Return np.array: [[FLOAT FLOAT], ...]
+# Return np.array: [[FLOATj FLOATj], ...]
 FFT_X_cache = {}
 def FFT_X(m):
     if m not in FFT_X_cache:
@@ -101,19 +100,23 @@ def FFT_X(m):
 
 # TF a court terme du signal x
 # m INT -> le numero de la decoupe
-# k INT -> indice voulu fans la Transform
-# Return np.array: [FLOAT FLOAT]
+# k INT -> indice voulu dans la decoupe
+# Return np.array: [FLOATj FLOATj]
 def X(m, k): return FFT_X(m)[k]
 
 
 # Cepstre a court terme  du signal x
 # m INT -> le numero de la decoupe
 # j INT -> le numero de la quefrence
+# Return np.array: [FLOAT FLOAT]
+c_cache = {}
 def c(m, j):
-    _X = FFT_X(m)
-    moduleX = np.module(_X)
-    logModuleX = np.log(moduleX)
-    return ifft2(logModuleX)[j]
+    if m not in c_cache:
+        _X = FFT_X(m)
+        moduleX = np.absolute(_X)
+        logModuleX = np.log(moduleX)
+        c_cache[m] = ifft2(logModuleX).real
+    return c_cache[m][j]
 
 
 # Cepstre prime ==> cepstre sans les hautes frequences
@@ -121,41 +124,116 @@ def c(m, j):
 # Si teta < j < N-teta alors on retourne 0
 # m INT -> le numero de la decoupe
 # j INT -> le numero de la quefrence
+# Return np.array: [FLOAT FLOAT]
 def c_prime(m, j):
-    if teta < j and j < N-teta: return 0
+    if teta < j and j < N-teta: return [0, 0]
     else: return c(m, j)
-
 
 
 # TF de cepstre prime
 # Si teta < j < N-teta alors on retourne 0
 # m INT -> le numero de la decoupe
-# k INT -> le numero de la quefrence
-def C_prime(m, k):
-    _u = np.ndarray(shape=(N,2))
-    for j in range(0, N): _c[j] = c_prime(m, j)
-    return fft(_c)[k]
+# Return np.array: [[FLOATj FLOATj], ...]
+FFT_C_prime_cache = {}
+def FFT_C_prime(m):
+    if m not in FFT_C_prime_cache:
+        _c = np.ndarray(shape=(N,2), dtype=np.complex128)
+        for j in range(0, N): _c[j] = c_prime(m, j)
+        FFT_C_prime_cache[m] = fft(_c)
+    return FFT_C_prime_cache[m]
+
+
+# TF de cepstre prime
+# Si teta < j < N-teta alors on retourne 0
+# m INT -> le numero de la decoupe
+# k INT -> indice voulu dans la decoupe
+# Return np.array: [FLOATj FLOATj]
+def C_prime(m, k): return FFT_C_prime(m)[k]
 
 
 # TF du conduit vocal
 # m INT -> le numero de la decoupe
-# k INT -> le numero de la quefrence
+# k INT -> indice voulu dans la decoupe
+# Return np.array: [FLOATj FLOATj]
 def H(m, k): return np.exp(C_prime(m, k))
+
+
+# Fonction de decoupe
+# m INT -> le numero de la decoupe
+# q INT -> le numero d'echantillon dans la decoupe centree en 0    |    q E [-N/2, N/2]
+# Return np.array: [INT INT]
+def p(m, q): return e[m * dn + q] * hann(q)
+
+
+# TF a court terme du signal e
+# m INT -> le numero de la decoupe
+# Return np.array: [[FLOATj FLOATj], ...]
+FFT_E_cache = {}
+def FFT_E(m):
+    if m not in FFT_E_cache:
+        _u = np.ndarray(shape=(N,2))
+        for q in range(0, N): _u[q] = p(m, q-dn)
+        FFT_E_cache[m] = fft2(_u)
+    return FFT_E_cache[m]
+
+
+# TF a court terme du signal e
+# m INT -> le numero de la decoupe
+# k INT -> indice voulu dans la decoupe
+# Return np.array: [FLOATj FLOATj]
+def E(m, k): return FFT_E(m)[k]
+
+
+# TF de la nouvelle voix
+# m INT -> le numero de la decoupe
+# k INT -> indice voulu dans la decoupe
+# Return np.array: [FLOATj FLOATj]
+def V(m, k): return E(m, k) * H(m, k)
+
+
+# Nouvelle voix
+# m INT -> le numero de la decoupe
+# q INT -> le numero de la quefrence
+# Return np.array: [FLOAT FLOAT]
+a_cache = {}
+def a(m, q):
+    if m not in a_cache:
+        _V = np.ndarray(shape=(N,2), dtype=np.complex128)
+        for k in range(0, N): _V[k] = V(m, k)
+        a_cache[m] = ifft2(_V).real
+    return a_cache[m][q+(N/2)]
+
+
+# Reconstruction de la nouvelle voix
+# n INT -> le numero de l'echantillon
+# Return np.array: [FLOAT FLOAT]
+def recon_v(n):
+    m = n / dn
+    q = n - m * dn
+    return a(m, q) + a(m+1, q-dn)
 
 
 
 # TEST RECONSTRUCTION DE X DEPUIS LE DECOUPAGE PUIS LA FFT
-_x = np.ndarray(shape=(xLen,2))
-for n in range(0, xLen-windowOverflow): _x[n] = recon_x(n).real
-_x = np.around(_x, 0).astype('int16')
-wavfile.write("test.wav", fe, _x)
-print np.average(_x - x)
-print x - _x
-print x , _x
-t = np.arange(0, x.shape[0], 1)
-plt.figure(1)
-plt.subplot(211)
-plt.plot(t, x)
-plt.subplot(212)
-plt.plot(t, _x)
-plt.show()
+# _x = np.ndarray(shape=(xLen,2), dtype=np.complex128)
+# for n in range(0, xLen-windowOverflow): _x[n] = recon_x(n)
+# _x = np.around(_x.real, 0).astype('int16')
+# wavfile.write("test.wav", fe, _x)
+# t = np.arange(0, x.shape[0], 1)
+# plt.subplot(212)
+# plt.plot(t, _C)
+# plt.show()
+
+
+
+# # TEST RESULTAT TP
+# _v = np.ndarray(shape=(xLen,2), dtype=np.complex128)
+# for n in range(0, xLen-windowOverflow): _v[n] = recon_v(n)
+# _v = np.around(_v.real, 0).astype('int16')
+# wavfile.write("test.wav", fe, _v)
+# t = np.arange(0, x.shape[0], 1)
+# plt.subplot(211)
+# plt.plot(t, x)
+# plt.subplot(212)
+# plt.plot(t, _v)
+# plt.show()
