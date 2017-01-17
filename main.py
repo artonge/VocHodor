@@ -34,7 +34,7 @@ dn = N / 2                                   #  1024     |  INT    |  Pas d'avan
 xLen   = len(x)                              #  76776    |  INT    |  Nombre d'echantillions dans le signal
 nbFenetre = xLen / dn                        #  74       |  INT    |  Nombre de fenetres
 windowOverflow = xLen - nbFenetre * dn + dn  #  2024     |  INT    |  Nombre d'echantillons restant a la fin
-teta = 40                                    #  40       |  INT    |  Quefrence seuil empirique
+tetaSeuil  = 4                                    #  4        |  INT    |  Quefrence seuil empirique
 
 print 'Tvoulu -> ', Tvoulu
 print 'Nvoulu -> ', Nvoulu
@@ -46,43 +46,68 @@ print 'dn -> ', dn
 print 'len -> ', xLen
 print 'nbFenetre -> ', nbFenetre
 print 'windowOverflow -> ', windowOverflow
-print 'teta -> ', teta
+print 'tetaSeuil -> ', tetaSeuil
 
 
 #################################
 #################################
+# FONCTION DE HANN
 #################################
 #################################
 
-hann = np.ndarray(shape=(N))
-for q in range(N): hann[q] = (1.0 + math.cos(2.0 * math.pi * (q - N/2) / N)) / 2.0
+w = np.ndarray(shape=(N))
+for q in range(N): w[q] = (1.0 + math.cos(2.0 * math.pi * (q - N/2) / N)) / 2.0
+
+
+def hann(signal):
+    chunks = np.ndarray(shape=(nbFenetre, N, 2))
+    for m in range(nbFenetre):
+        for q in range(N): chunks[m, q] = signal[m*dn + q - N/2] * w[q]
+
+    return chunks
 
 #################################
 #################################
+# CALCULE DE LA FFT A COURT TERM
 #################################
 #################################
 
-def computeChunkH(chunk):
+def fftCourtTerm(chunk) :
+    return fft2(chunk)
 
-    chunk = fft2(chunk)
+#################################
+#################################
+# CALCULE DU CEPSTRE
+#################################
+#################################
+
+def cepstreCourtTerm(chunk) :
     chunk = np.absolute(chunk)
     chunk = np.log(chunk)
-    chunk = ifft2(chunk).real
-
-    for j in range(N):
-        if (j < 50 or N - 50 < j): chunk[j] = [0, 0]
-
-    chunk = fft2(chunk)
-    chunk = np.exp(chunk)
-
+    chunk = ifft2(chunk)
     return chunk
 
 #################################
 #################################
+# EXTRACTION REPONSE FREQUENTIELLE DU CONDUIT VOCAL
 #################################
 #################################
 
-def computeChunkE(chunk) : return fft2(chunk)
+def repFreqConduitVocal(chunk):
+
+    fft = fftCourtTerm(chunk)
+    cepstre = cepstreCourtTerm(fft)
+
+    # Filtrage de la Quefrence
+    # On garde juste la reponse frequentielle de la glotte
+    for j in range(N):
+        if (j < tetaSeuil or N - tetaSeuil < j):
+            cepstre[j] = [0, 0]
+
+    # On repasse dans le domaine frequentielle
+    fftCepstre = fft2(cepstre)
+    fftCepstre = np.exp(fftCepstre)
+    return fftCepstre
 
 #################################
 #################################
@@ -91,28 +116,18 @@ def computeChunkE(chunk) : return fft2(chunk)
 
 start = time.time()
 
-poolH = Pool(6) 
-poolE = Pool(2) 
-
-u = np.ndarray(shape=(nbFenetre, N, 2))
-for m in range(nbFenetre):
-    for q in range(N): u[m, q] = x[m*dn + q - N/2] * hann[q]
-
-p = np.ndarray(shape=(nbFenetre, N, 2))
-for m in range(nbFenetre):
-    for q in range(N): p[m, q] = e[m*dn + q - N/2] * hann[q]
-
-resultH = poolH.map_async(computeChunkH, u)
-resultE = poolE.map_async(computeChunkE, p)
+resultH = Pool(6).map_async(repFreqConduitVocal, hann(x))
+resultE = Pool(2).map_async(fftCourtTerm, hann(e))
 
 H = resultH.get()
 E = resultE.get()
 
-
-# calculateE()
-# calculateH()
-
 print time.time() - start
+
+#################################
+#################################
+#################################
+#################################
 
 V = np.ndarray(shape=(nbFenetre, N, 2), dtype=np.complex128)
 for m in range(nbFenetre): V[m] = E[m] * H[m]
